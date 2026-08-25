@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>ICEIBank</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 720px; margin: 30px auto; padding: 0 16px; background:#f4f6f8; }
+  h1 { color: #1a3d63; }
+  fieldset { margin-bottom: 18px; border-radius: 8px; border: 1px solid #ccc; background: #fff; }
+  legend { font-weight: bold; color: #1a3d63; padding: 0 6px; }
+  label { display:block; margin-top:8px; font-size: 14px; }
+  input, select { padding:6px; width: 100%; box-sizing: border-box; margin-top:2px; }
+  button { margin-top:12px; padding:8px 14px; background:#1a3d63; color:#fff; border:none; border-radius:4px; cursor:pointer; }
+  button:hover { background:#12314f; }
+  .erro { color:#b00020; background:#fdecea; border:1px solid #b00020; padding:8px; border-radius:4px; margin-top:10px; }
+  .ok { color:#0a6e2a; background:#e8f7ec; border:1px solid #0a6e2a; padding:8px; border-radius:4px; margin-top:10px; }
+  #painel { display:none; }
+  #tokenInfo { font-size: 12px; color:#555; }
+  table { width:100%; border-collapse: collapse; margin-top:10px; }
+  td, th { border-bottom:1px solid #ddd; padding:4px; font-size:13px; text-align:left; }
+</style>
+</head>
+<body>
+<h1>ICEIBank</h1>
+
+<fieldset id="loginBox">
+  <legend>Login</legend>
+  <label>Agencia (porta de entrada)
+    <select id="agenciaUrl">
+      <option value="http://localhost:4000">Agencia 0 (porta 4000)</option>
+      <option value="http://localhost:4001">Agencia 1 (porta 4001)</option>
+      <option value="http://localhost:4002">Agencia 2 (porta 4002)</option>
+    </select>
+  </label>
+  <label>Usuario <input id="loginUsuario" value="aluno"></label>
+  <label>Senha <input id="loginSenha" type="password" value="senha123"></label>
+  <button onclick="login()">Entrar</button>
+  <div id="loginMsg"></div>
+</fieldset>
+
+<div id="painel">
+  <p id="tokenInfo"></p>
+  <button onclick="logout()">Sair</button>
+
+  <fieldset>
+    <legend>Consultar saldo</legend>
+    <label>ID da conta <input id="saldoId" type="number"></label>
+    <button onclick="consultarSaldo()">Consultar</button>
+    <div id="saldoResultado"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Depositar / Sacar</legend>
+    <label>ID da conta <input id="movId" type="number"></label>
+    <label>Valor <input id="movValor" type="number" step="0.01"></label>
+    <button onclick="movimentar('depositar')">Depositar</button>
+    <button onclick="movimentar('sacar')">Sacar</button>
+    <div id="movResultado"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Transferencia (local ou entre agencias)</legend>
+    <label>Conta origem <input id="trOrigem" type="number"></label>
+    <label>Conta destino <input id="trDestino" type="number"></label>
+    <label>Valor <input id="trValor" type="number" step="0.01"></label>
+    <button onclick="transferir()">Transferir</button>
+    <div id="trResultado"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Historico da conta (funcionalidade adicional)</legend>
+    <label>ID da conta <input id="histId" type="number"></label>
+    <button onclick="consultarHistorico()">Ver historico</button>
+    <div id="histResultado"></div>
+  </fieldset>
+</div>
+
+<script>
+// ---- Model: estado da aplicacao (token, URL da agencia atual) ----
+let token = null;
+let agenciaBase = null;
+
+// ---- View helpers ----
+function mostrarErro(elId, msg) {
+  document.getElementById(elId).innerHTML = `<div class="erro">${msg}</div>`;
+}
+function mostrarOk(elId, msg) {
+  document.getElementById(elId).innerHTML = `<div class="ok">${msg}</div>`;
+}
+
+// ---- Controller: chamadas a API ----
+async function chamarApi(caminho, metodo, corpo) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+
+  const resp = await fetch(agenciaBase + caminho, {
+    method: metodo,
+    headers,
+    body: corpo ? JSON.stringify(corpo) : undefined
+  });
+
+  let dados = null;
+  try { dados = await resp.json(); } catch (e) { /* corpo vazio */ }
+
+  if (resp.status === 401) {
+    mostrarErro('loginMsg', 'Sessao expirada ou nao autenticado. Faca login novamente.');
+    logout();
+    throw new Error('401');
+  }
+  if (!resp.ok) {
+    throw new Error((dados && dados.erro) || `Erro HTTP ${resp.status}`);
+  }
+  return dados;
+}
+
+async function login() {
+  agenciaBase = document.getElementById('agenciaUrl').value;
+  const usuario = document.getElementById('loginUsuario').value;
+  const senha = document.getElementById('loginSenha').value;
+
+  try {
+    const dados = await chamarApi('/auth/login', 'POST', { usuario, senha });
+    token = dados.token;
+    document.getElementById('loginBox').style.display = 'none';
+    document.getElementById('painel').style.display = 'block';
+    document.getElementById('tokenInfo').innerText = `Conectado como "${usuario}" em ${agenciaBase}`;
+  } catch (e) {
+    mostrarErro('loginMsg', e.message);
+  }
+}
+
+function logout() {
+  token = null;
+  document.getElementById('loginBox').style.display = 'block';
+  document.getElementById('painel').style.display = 'none';
+}
+
+async function consultarSaldo() {
+  const id = document.getElementById('saldoId').value;
+  try {
+    const conta = await chamarApi(`/contas/${id}`, 'GET');
+    mostrarOk('saldoResultado', `Conta ${conta.id} (${conta.nomeAluno}) - saldo: R$ ${conta.saldo.toFixed(2)}`);
+  } catch (e) {
+    mostrarErro('saldoResultado', e.message);
+  }
+}
+
+async function movimentar(tipo) {
+  const id = document.getElementById('movId').value;
+  const valor = parseFloat(document.getElementById('movValor').value);
+  try {
+    const conta = await chamarApi(`/contas/${id}/${tipo}`, 'POST', { valor });
+    mostrarOk('movResultado', `OK - novo saldo da conta ${conta.id}: R$ ${conta.saldo.toFixed(2)}`);
+  } catch (e) {
+    mostrarErro('movResultado', e.message);
+  }
+}
+
+async function transferir() {
+  const idOrigem = parseInt(document.getElementById('trOrigem').value, 10);
+  const idDestino = parseInt(document.getElementById('trDestino').value, 10);
+  const valor = parseFloat(document.getElementById('trValor').value);
+  try {
+    const resultado = await chamarApi('/transferencias', 'POST', { idOrigem, idDestino, valor });
+    mostrarOk('trResultado', resultado.mensagem);
+  } catch (e) {
+    mostrarErro('trResultado', e.message);
+  }
+}
+
+async function consultarHistorico() {
+  const id = document.getElementById('histId').value;
+  try {
+    const itens = await chamarApi(`/contas/${id}/historico`, 'GET');
+    if (!itens.length) {
+      mostrarOk('histResultado', 'Nenhum evento registrado para esta conta ainda.');
+      return;
+    }
+    let html = '<table><tr><th>Lamport</th><th>Tipo</th><th>Hora</th></tr>';
+    for (const it of itens) {
+      html += `<tr><td>${it.timestampLamport}</td><td>${it.tipo}</td><td>${it.horaParede}</td></tr>`;
+    }
+    html += '</table>';
+    document.getElementById('histResultado').innerHTML = html;
+  } catch (e) {
+    mostrarErro('histResultado', e.message);
+  }
+}
+</script>
+</body>
+</html>
