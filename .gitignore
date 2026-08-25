@@ -1,0 +1,14 @@
+# Maven
+agencia/target/
+
+# Logs gerados em tempo de execucao
+agencia/data/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Sistema
+Thumbs.db
+desktop.ini
