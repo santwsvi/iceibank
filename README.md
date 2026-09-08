@@ -77,14 +77,14 @@ Cada agencia grava seus eventos em `agencia/data/eventos-agencia-<id>.jsonl`
 
 ```powershell
 # 1) Login
-$login = Invoke-RestMethod -Uri "http://localhost:4000/auth/login" -Method Post `
+$login = Invoke-RestMethod -Uri "http://localhost:4001/auth/login" -Method Post `
   -ContentType "application/json" -Body '{"usuario":"aluno","senha":"senha123"}'
 $token = $login.token
 
 # 2) Criar conta 0 na Agencia 0 (0 % 3 == 0)
-Invoke-RestMethod -Uri "http://localhost:4000/contas" -Method Post `
+Invoke-RestMethod -Uri "http://localhost:4001/contas" -Method Post `
   -Headers @{ Authorization = "Bearer $token" } -ContentType "application/json" `
-  -Body '{"id":0,"nomeAluno":"Ana","saldoInicial":100}'
+  -Body '{"id":1,"nomeAluno":"Douglas","saldoInicial":100}'
 
 # 3) Consultar saldo
 Invoke-RestMethod -Uri "http://localhost:4000/contas/0" -Method Get `
