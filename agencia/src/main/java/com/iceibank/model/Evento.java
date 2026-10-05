@@ -2,18 +2,11 @@ package com.iceibank.model;
 
 import java.util.Map;
 
-/**
- * Evento registrado no log .jsonl de uma agencia.
- *
- * Guarda dois carimbos de tempo: timestampLamport (o relogio logico) e horaParede
- * (o relogio fisico da maquina, so para fins de comparacao - nao usado para
- * nenhuma decisao do sistema).
- */
+/** Evento do log com relógio vetorial e horário físico apenas para exibição. */
 public record Evento(
         String agencia,
         String tipo,
-        int timestampLamport,
+        int[] timestampVetorial,
         String horaParede,
         Map<String, Object> detalhes
-) {
-}
+) {}

@@ -3,7 +3,7 @@ package com.iceibank.controller;
 import com.iceibank.config.AppConfig;
 import com.iceibank.service.ContaService;
 import com.iceibank.service.HistoricoService;
-import com.iceibank.service.RelogioLamport;
+import com.iceibank.service.RelogioVetorial;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,11 +21,11 @@ public class ExtraController {
 
     private final HistoricoService historicoService;
     private final ContaService contaService;
-    private final RelogioLamport relogio;
+    private final RelogioVetorial relogio;
     private final AppConfig appConfig;
 
     public ExtraController(HistoricoService historicoService, ContaService contaService,
-                            RelogioLamport relogio, AppConfig appConfig) {
+                            RelogioVetorial relogio, AppConfig appConfig) {
         this.historicoService = historicoService;
         this.contaService = contaService;
         this.relogio = relogio;
@@ -38,12 +38,12 @@ public class ExtraController {
         return historicoService.consultar(id);
     }
 
-    /** Health-check: relogio de Lamport atual e quantidade de contas sob responsabilidade da agencia. */
+    /** Health-check: vetor atual e quantidade de contas sob responsabilidade da agencia. */
     @GetMapping("/status")
     public Object status() {
         return Map.of(
                 "agencia", appConfig.getIdAgencia(),
-                "relogioLamportAtual", relogio.valorAtual(),
+                "relogioVetorialAtual", relogio.estadoAtual(),
                 "quantidadeContas", contaService.getContas().size()
         );
     }

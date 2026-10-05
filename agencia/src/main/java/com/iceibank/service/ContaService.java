@@ -20,13 +20,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ContaService {
 
     private final AppConfig appConfig;
-    private final RelogioLamport relogio;
+    private final RelogioVetorial relogio;
     private final RegistroEventos registro;
     private final HistoricoService historico;
 
     private final Map<Integer, Conta> contas = new ConcurrentHashMap<>();
 
-    public ContaService(AppConfig appConfig, RelogioLamport relogio, RegistroEventos registro, HistoricoService historico) {
+    public ContaService(AppConfig appConfig, RelogioVetorial relogio, RegistroEventos registro, HistoricoService historico) {
         this.appConfig = appConfig;
         this.relogio = relogio;
         this.registro = registro;
@@ -49,7 +49,7 @@ public class ContaService {
             throw new RegraNegocioException("Conta ja existe.", 409);
         }
 
-        int ts = relogio.eventoLocal();
+        int[] ts = relogio.eventoLocal();
         Conta conta = new Conta(id, nomeAluno, saldoInicial);
         contas.put(id, conta);
 
@@ -73,7 +73,7 @@ public class ContaService {
             throw new RegraNegocioException("Conta nao encontrada nesta agencia.", 404);
         }
 
-        int ts = relogio.eventoLocal();
+        int[] ts = relogio.eventoLocal();
         conta.setSaldo(conta.getSaldo() + valor);
 
         Map<String, Object> detalhes = new LinkedHashMap<>();
@@ -95,7 +95,7 @@ public class ContaService {
             throw new RegraNegocioException("Saldo insuficiente.", 400);
         }
 
-        int ts = relogio.eventoLocal();
+        int[] ts = relogio.eventoLocal();
         conta.setSaldo(conta.getSaldo() - valor);
 
         Map<String, Object> detalhes = new LinkedHashMap<>();

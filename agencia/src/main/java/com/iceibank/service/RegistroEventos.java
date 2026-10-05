@@ -43,11 +43,11 @@ public class RegistroEventos {
         this.caminhoArquivo = pastaDados.resolve("eventos-agencia-" + appConfig.getIdAgencia() + ".jsonl");
     }
 
-    public synchronized Evento registrar(String tipo, int timestampLamport, Map<String, Object> detalhes) {
+    public synchronized Evento registrar(String tipo, int[] timestampVetorial, Map<String, Object> detalhes) {
         Evento evento = new Evento(
                 "agencia-" + appConfig.getIdAgencia(),
                 tipo,
-                timestampLamport,
+                timestampVetorial.clone(),
                 Instant.now().toString(),
                 detalhes
         );
@@ -58,7 +58,7 @@ public class RegistroEventos {
         } catch (IOException e) {
             log.error("Falha ao gravar evento no log", e);
         }
-        log.info("[Lamport {}] {} {}", timestampLamport, tipo, detalhes);
+        log.info("[Vetor {}] {} {}", java.util.Arrays.toString(timestampVetorial), tipo, detalhes);
         return evento;
     }
 }

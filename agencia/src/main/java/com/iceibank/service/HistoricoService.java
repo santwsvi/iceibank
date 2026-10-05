@@ -23,14 +23,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @Service
 public class HistoricoService {
 
-    public record ItemHistorico(String tipo, int timestampLamport, String horaParede, Map<String, Object> detalhes) {}
+    public record ItemHistorico(String tipo, int[] timestampVetorial, String horaParede, Map<String, Object> detalhes) {}
 
     private final Map<Integer, List<ItemHistorico>> historicoPorConta = new ConcurrentHashMap<>();
 
-    public void registrar(int idConta, String tipo, int timestampLamport, Map<String, Object> detalhes) {
+    public void registrar(int idConta, String tipo, int[] timestampVetorial, Map<String, Object> detalhes) {
         historicoPorConta
                 .computeIfAbsent(idConta, k -> new CopyOnWriteArrayList<>())
-                .add(new ItemHistorico(tipo, timestampLamport, Instant.now().toString(), detalhes));
+                .add(new ItemHistorico(tipo, timestampVetorial.clone(), Instant.now().toString(), detalhes));
     }
 
     public List<ItemHistorico> consultar(int idConta) {
