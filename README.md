@@ -1,14 +1,15 @@
-# ICEIBank - Sprint 1 (Java / Spring Boot)
+# ICEIBank - Sprint 2 (Java / Spring Boot)
 
-Implementacao em **Java 17 + Spring Boot 3** do Sprint 1 do ICEIBank: API REST/MVC de
-contas particionadas em 3 agencias, relogio logico de Lamport, transferencias local e
-entre agencias (com a limitacao conhecida documentada), autenticacao JWT e um frontend
-web simples (HTML/JS puro, servido como recurso estatico pelo proprio Spring Boot).
+Implementacao em **Java 17 + Spring Boot 3**: API REST/MVC de contas particionadas em
+3 agencias, relógio vetorial, transferências remotas assíncronas com RabbitMQ, JWT e
+frontend web simples servido pelo próprio Spring Boot. Mensagens não processadas após
+tentativas são encaminhadas para uma dead-letter queue (DLQ) por agência.
 
 ## Requisitos
 
 - JDK 17+
 - Maven 3.9+ (ou use o `mvnw` se preferir gerar um wrapper)
+- RabbitMQ 3 (local ou instância CloudAMQP)
 
 ## Estrutura
 
@@ -18,12 +19,11 @@ iceibank-java/
 │   ├── pom.xml
 │   └── src/main/java/com/iceibank/
 │       ├── IceibankApplication.java
-│       ├── MesclarLogs.java             (Parte E - linha do tempo unificada)
+│       ├── MesclarLogs.java             (linha do tempo e concorrência causal)
 │       ├── config/                      (AppConfig = particionamento, WebConfig = RestTemplate)
 │       ├── security/                    (JwtUtil, JwtAuthFilter, SecurityConfig)
 │       ├── model/                       (Conta, Evento)
-│       ├── service/                     (RelogioLamport, RegistroEventos, ContaService,
-│       │                                 TransferenciaService, HistoricoService)
+│       ├── service/                     (RelogioVetorial, mensageria e serviços)
 │       └── controller/                  (ContasController, TransferenciasController,
 │                                          AuthController, ExtraController)
 │   └── src/main/resources/
@@ -33,7 +33,7 @@ iceibank-java/
 └── RESPOSTAS.md
 ```
 
-## Como rodar as 3 agencias
+## Como rodar as 3 agências
 
 Cada agencia e o **mesmo jar**, diferenciado pela variavel de ambiente `AGENCIA_ID`
 (0, 1 ou 2) e pela porta.
@@ -73,6 +73,25 @@ $env:AGENCIA_ID=2; $env:PORTA=4002; java -jar target/agencia.jar
 Cada agencia grava seus eventos em `agencia/data/eventos-agencia-<id>.jsonl`
 (pasta criada automaticamente, ja ignorada pelo `.gitignore`).
 
+Defina `RABBITMQ_URL` em cada terminal, ou utilize a URL local padrão
+`amqp://guest:guest@localhost:5672/`. Por exemplo, com PowerShell:
+
+```powershell
+$env:RABBITMQ_URL="amqp://guest:guest@localhost:5672/"
+$env:AGENCIA_ID=0; $env:PORTA=4000; mvn spring-boot:run
+```
+
+As instâncias declaram a exchange topic `iceibank.eventos`, sua fila durável
+`fila-agencia-<id>` e a fila de mensagens mortas `fila-agencia-<id>.dlq`. Uma
+transferência remota responde quando a publicação é aceita; o crédito será aplicado
+depois pelo consumidor. Se a agência destino reiniciar, suas contas em memória somem;
+a mensagem não processada vai para a DLQ após as tentativas. Não há transação
+distribuída nem persistência de contas nesta etapa.
+
+Com JWT, `GET /mensageria/dlq/status` mostra a quantidade de mensagens em quarentena
+da agência. Para inspecionar ou republicar mensagens depois de corrigir a causa,
+use RabbitMQ Manager.
+
 ## Testando a API (antes do login, use Invoke-RestMethod/Postman com o token)
 
 ```powershell
@@ -100,9 +119,9 @@ Invoke-RestMethod -Uri "http://localhost:4000/transferencias" -Method Post `
   -Body '{"idOrigem":0,"idDestino":1,"valor":30}'
 ```
 
-## Linha do tempo unificada (Parte E)
+## Linha do tempo causal
 
-Depois de gerar alguns eventos nas 3 agencias:
+Depois de gerar eventos independentes em mais de uma agência e transferências:
 
 ```powershell
 cd iceibank-java/agencia
@@ -116,5 +135,5 @@ Acesse `http://localhost:4000/` (ou 4001 / 4002) no navegador - o Spring Boot se
 "porta de entrada", fazer login, consultar saldo, depositar, sacar, transferir e ver o
 historico de uma conta.
 
-Usuarios de demonstracao: `aluno` / `senha123` ou `operador` / `operador123`
+Usuários de demonstração: `aluno` / `senha123` ou `operador` / `operador123`
 (ver `AuthController` - documentado como simplificacao didatica em `RESPOSTAS.md`).

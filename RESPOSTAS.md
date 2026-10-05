@@ -45,6 +45,36 @@ Cada evento registra agência, tipo, vetor, hora de parede, detalhes e, quando a
 
 Substituir o POST remoto pelo publish durável na exchange topic do RabbitMQ; cada agência consome sua fila, mescla o vetor e aplica o crédito. A mensagem carrega ID estável, origem, destino, valor e vetor. O script de linha do tempo compara vetores e aponta eventos concorrentes. O teste de resiliência desliga o consumidor, publica uma mensagem e o religa; a fila retém a mensagem, mas a conta em memória pode ter desaparecido após reinício. A dead-letter queue será usada como funcionalidade adicional para preservar mensagens que não possam ser processadas.
 
+## Sprint 2 - relógio vetorial e mensageria
+
+### Parte B - questões 6.4
+
+1. Com 10 agências cada vetor enviado terá 10 contadores, crescendo linearmente com o número de processos. Para três agências o custo é pequeno; em sistemas com milhares ou milhões de processos, vetor completo aumenta cada mensagem e a comparação. Existem relógios vetoriais esparsos ou hierárquicos para reduzir esse custo, com trade-offs.
+2. `[3,1,0]` aconteceu antes de `[3,2,0]`: todas as posições do primeiro são menores ou iguais, e a segunda posição é estritamente maior.
+3. `[3,1,0]` e `[1,3,0]` são concorrentes: o primeiro é maior na posição 0 e menor na posição 1, portanto nenhum vetor domina o outro.
+
+### Parte C - questões 7.5
+
+1. O consumidor atualiza o vetor ao receber. Se a conta foi apagada porque o processo foi reiniciado, a mensagem continua na fila, mas o crédito não pode ser aplicado. Após três tentativas, o consumidor rejeita a mensagem e o RabbitMQ a encaminha à fila de mensagens mortas da agência. O broker preserva a mensagem; a DLQ torna a falha visível e recuperável.
+2. Em relação ao POST síncrono, a mensagem pode aguardar a agência destino voltar, e a origem confirma a publicação sem esperar o crédito. Isso reduz falhas por indisponibilidade transitória. Ainda há estados parciais: o débito ocorre antes do crédito, contas não persistem, a deduplicação atual é em memória e não há transação atômica entre saldo e ACK. Uma DLQ não é recuperação automática do saldo.
+3. Não há JWT no consumidor porque JWT protege chamadas HTTP de usuários, enquanto o consumidor processa uma mensagem do broker. Isso não torna a mensagem automaticamente confiável: quem tem credenciais de publicação no RabbitMQ pode tentar forjar créditos. Em ambiente compartilhado, deve-se restringir credenciais/permissões por serviço, proteger TLS e validar origem, destino e conteúdo; JWT não substitui autenticação do broker.
+
+### Parte D - questões 8.3
+
+1. Cada posição identifica quanto da história de uma agência o evento conhece. Se os vetores forem incomparáveis componente a componente, nenhum evento causou o outro; um escalar de Lamport não carrega essa informação.
+2. Um par válido deve ser escolhido da saída produzida com operações realmente independentes em duas agências. A evidência de execução ainda precisa ser capturada; não atribuo aqui um exemplo como se tivesse sido observado.
+3. A comparação de todos os pares custa O(n²), inviável para logs muito grandes. Pode-se filtrar por janela/agência e particionar por período ou conta, armazenar índices de causalidade e processar lotes/consultas incrementais. A comparação exata continua custosa no pior caso.
+
+### Funcionalidade adicional - DLQ por agência
+
+Cada fila de crédito usa uma dead-letter exchange e uma fila durável `fila-agencia-<id>.dlq`. Falhas no processamento são tentadas três vezes com espera exponencial; depois a mensagem é rejeitada sem requeue e roteada para a DLQ. Isso cobre, por exemplo, conta destino ausente. A mensagem pode ser inspecionada e reenviada depois que o estado for corrigido. Captura de tela de execução real ainda pendente por depender de RabbitMQ acessível.
+
+`GET /mensageria/dlq/status` (JWT obrigatório) informa a fila da agência e a quantidade de mensagens pendentes. Após corrigir o motivo da falha, a pessoa operadora pode usar RabbitMQ Manager para inspecionar e republicar a mensagem; a rota não descarta nem altera mensagens.
+
+### Limitações observadas no ambiente desta edição
+
+O código preserva contas em memória como no Sprint 1. Ainda é necessário executar o broker e os testes de ponta a ponta para preencher as capturas reais indicadas no roteiro e confirmar a regressão do frontend. A deduplicação em memória protege redelivery enquanto o processo permanece ativo, mas não sobrevive a reinício; idempotência durável requer armazenamento persistente coordenado com a alteração do saldo.
+
 ## Parte B - Relogio de Lamport e registro de eventos (secao 6.4)
 
 **1. Por que `max(contador_local, timestampRecebido) + 1` em vez de adotar o timestamp recebido diretamente?**
