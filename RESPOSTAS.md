@@ -62,7 +62,7 @@ Substituir o POST remoto pelo publish durável na exchange topic do RabbitMQ; ca
 ### Parte D - questões 8.3
 
 1. Cada posição identifica quanto da história de uma agência o evento conhece. Se os vetores forem incomparáveis componente a componente, nenhum evento causou o outro; um escalar de Lamport não carrega essa informação.
-2. Um par válido deve ser escolhido da saída produzida com operações realmente independentes em duas agências. A evidência de execução ainda precisa ser capturada; não atribuo aqui um exemplo como se tivesse sido observado.
+2. No ensaio local, `CRIAR_CONTA` da agência 2 recebeu `[0,0,1]` e `DEPOSITO` independente da agência 0 recebeu `[6,0,0]`. Os vetores são incomparáveis e as operações não trocaram mensagens, então a concorrência faz sentido. A transferência normal também mostrou débito `[2,0,0]` e crédito remoto `[3,2,0]`; o segundo domina o primeiro e, portanto, essa relação causal não é classificada como concorrente. A tentativa feita enquanto a agência destino estava parada resultou em três eventos de falha e mensagem na DLQ.
 3. A comparação de todos os pares custa O(n²), inviável para logs muito grandes. Pode-se filtrar por janela/agência e particionar por período ou conta, armazenar índices de causalidade e processar lotes/consultas incrementais. A comparação exata continua custosa no pior caso.
 
 ### Funcionalidade adicional - DLQ por agência
@@ -73,7 +73,7 @@ Cada fila de crédito usa uma dead-letter exchange e uma fila durável `fila-age
 
 ### Limitações observadas no ambiente desta edição
 
-O código preserva contas em memória como no Sprint 1. Ainda é necessário executar o broker e os testes de ponta a ponta para preencher as capturas reais indicadas no roteiro e confirmar a regressão do frontend. A deduplicação em memória protege redelivery enquanto o processo permanece ativo, mas não sobrevive a reinício; idempotência durável requer armazenamento persistente coordenado com a alteração do saldo.
+O código preserva contas em memória como no Sprint 1. A compilação limpa, os fluxos HTTP autenticados, a transferência assíncrona, a perda da conta no reinício, o encaminhamento à DLQ, o comparador causal e uma consulta pelo frontend foram verificados em um broker RabbitMQ local isolado. As quatro capturas PNG indicadas pelo roteiro continuam pendentes: a ferramenta de navegador desta sessão exibiu a tela, mas não oferece forma de gravar a imagem no diretório `evidencias/sprint2/`. A deduplicação em memória protege redelivery enquanto o processo permanece ativo, mas não sobrevive a reinício; idempotência durável requer armazenamento persistente coordenado com a alteração do saldo.
 
 ## Parte B - Relogio de Lamport e registro de eventos (secao 6.4)
 
