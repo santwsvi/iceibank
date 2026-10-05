@@ -1,6 +1,49 @@
-# RESPOSTAS.md - ICEIBank Sprint 1 (Java / Spring Boot)
+# RESPOSTAS.md - ICEIBank (Java / Spring Boot)
 
 > Linguagem escolhida: **Java (Spring Boot)**, mantida do Sprint 1 ao Sprint 4.
+
+## Recapitulação do Sprint 1 e proposta do Sprint 2
+
+### 1. Arquitetura e agências
+
+O projeto executa três instâncias do mesmo serviço Spring Boot, identificadas por `AGENCIA_ID=0`, `1` ou `2`, normalmente nas portas 4000, 4001 e 4002. `AppConfig.agenciaResponsavel(id)` particiona as contas por `id % 3`; cada instância mantém em memória as contas da sua partição. Controllers expõem a API REST; `ContaService` mantém as contas; `TransferenciaService` coordena transferências; Spring Security/JWT protege a API; o HTML estático fornece o frontend. Operações de conta são locais à instância proprietária; consultas e transferências iniciadas por outra agência dependem de comunicação entre processos.
+
+### 2. Comunicação antes do Sprint 2
+
+Uma transferência remota debitava a origem e fazia um POST REST síncrono ao endpoint `/contas/{id}/creditar-remoto` da agência destino, autenticado com `X-Agencia-Secret`. A resposta só chegava depois do crédito remoto. Se a agência destino estivesse fora do ar ou excedesse o timeout, a chamada falhava e o débito permanecia aplicado, limitação intencional documentada no Sprint 1.
+
+### 3. Efeitos da transferência
+
+`TransferenciaService` valida a conta e o saldo na origem, avança o relógio da agência, debita e registra o evento. Para mesma agência, credita localmente e registra outro evento. Entre agências, envia id da conta, valor e metadados de Lamport via HTTP; o destino valida a conta, mescla o timestamp, credita e registra o evento. O cliente recebia sucesso após o crédito remoto; uma falha de rede deixava o estado parcial.
+
+### 4. Eventos candidatos à publicação
+
+- `transferencia.credito.solicitado`: produtor, agência de origem; dados: `messageId`, conta destino, valor, agência de origem e vetor causal; consumidor, fila da agência destino.
+- `transferencia.credito.aplicado` ou `transferencia.credito.falhou`: produtor, agência destino; dados: `messageId`, conta, valor, origem, vetor e resultado; consumidores possíveis, agência de origem, auditoria e monitoramento.
+
+### 5. Fluxo Pub/Sub proposto
+
+A agência de origem publica um comando durável na exchange topic `iceibank.eventos`, com routing key `agencia.<id>.creditar`. A fila durável `fila-agencia-<id>` vinculada pela chave recebe a mensagem; o consumidor da agência destino mescla o vetor, tenta aplicar o crédito e registra o resultado. A origem responde que a mensagem foi publicada; a aplicação do crédito é assíncrona. Uma confirmação de crédito é uma evolução possível.
+
+### 6. Duplicidade e falha
+
+Uma redelivery pode creditar duas vezes se o consumidor aplicar o saldo e cair antes do ACK. A mensagem precisa de identificador estável (`messageId`) e o consumidor deve registrar IDs processados de forma durável e atômica com o crédito para garantir idempotência. Eventos fora de ordem podem aplicar crédito antes de uma operação causal anterior; sequência por conta, validação de estado e metadados causais ajudam a detectar e tratar isso. No escopo atual, contas e deduplicação em memória não sobrevivem a reinícios; a DLQ preserva mensagens rejeitadas, mas não resolve persistência nem transações.
+
+### 7. Ordem de recebimento e concorrência
+
+Se a agência 0 envia mensagens M1 e M2 em sequência, mas M1 sofre atraso e M2 é processada primeiro, a ordem observada pode divergir da ordem de envio. Da mesma forma, operações locais independentes nas agências 0 e 1 podem chegar aos logs em qualquer ordem. Ordenar apenas pelo relógio de parede pode sugerir uma causalidade que não existiu; deve-se distinguir ordem local, ordem de recebimento e causalidade.
+
+### 8. Relógio vetorial
+
+O vetor tem três posições, uma por agência. Evento local incrementa a posição própria; envio incrementa e anexa uma cópia; recebimento mescla posição a posição pelo máximo e incrementa a posição própria. Por exemplo, `[1,0,0]` e `[0,1,0]` são concorrentes; após uma mensagem do primeiro evento ser recebida na agência 1, um evento resultante como `[1,2,0]` é posterior a `[1,0,0]`.
+
+### 9. Observabilidade
+
+Cada evento registra agência, tipo, vetor, hora de parede, detalhes e, quando aplicável, `messageId`, origem/destino, routing key e resultado. Comparação componente a componente determina precedência causal ou concorrência. O log precisa preservar os vetores antes e depois do recebimento para explicar a propagação causal.
+
+### 10. Evolução proposta
+
+Substituir o POST remoto pelo publish durável na exchange topic do RabbitMQ; cada agência consome sua fila, mescla o vetor e aplica o crédito. A mensagem carrega ID estável, origem, destino, valor e vetor. O script de linha do tempo compara vetores e aponta eventos concorrentes. O teste de resiliência desliga o consumidor, publica uma mensagem e o religa; a fila retém a mensagem, mas a conta em memória pode ter desaparecido após reinício. A dead-letter queue será usada como funcionalidade adicional para preservar mensagens que não possam ser processadas.
 
 ## Parte B - Relogio de Lamport e registro de eventos (secao 6.4)
 
