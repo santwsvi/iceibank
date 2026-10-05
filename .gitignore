@@ -1,5 +1,6 @@
 # Maven
 agencia/target/
+.maven-cache/
 
 # Logs gerados em tempo de execucao
 agencia/data/
