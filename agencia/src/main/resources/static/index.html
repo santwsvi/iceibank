@@ -178,7 +178,7 @@ async function consultarHistorico() {
     }
     let html = '<table><tr><th>Lamport</th><th>Tipo</th><th>Hora</th></tr>';
     for (const it of itens) {
-      html += `<tr><td>${it.timestampLamport}</td><td>${it.tipo}</td><td>${it.horaParede}</td></tr>`;
+      html += `<tr><td>${JSON.stringify(it.timestampVetorial)}</td><td>${it.tipo}</td><td>${it.horaParede}</td></tr>`;
     }
     html += '</table>';
     document.getElementById('histResultado').innerHTML = html;
