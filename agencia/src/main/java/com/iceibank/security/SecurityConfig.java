@@ -18,13 +18,8 @@ import java.util.List;
  * Parte F - Autenticacao (JWT).
  *
  * - /auth/login e os arquivos do frontend (Parte G) sao publicos.
- * - /contas/{id}/creditar-remoto (chamada agencia-a-agencia da Parte D) e liberado
- *   aqui na camada de rotas, mas continua protegido: o proprio controller valida um
- *   segredo interno compartilhado (X-Agencia-Secret) antes de aplicar o credito.
- *   Decisao de design (ver RESPOSTAS.md): a chamada interna nao usa o mesmo JWT do
- *   usuario porque ela nao representa uma pessoa autenticada, e sim uma agencia
- *   confiavel falando com outra - por isso um segredo de servico separado, mais
- *   simples de rotacionar sem afetar sessoes de usuarios.
+ * - O endpoint interno de crédito remoto foi removido: a entrega interna ocorre
+ *   por RabbitMQ e não passa pela API HTTP.
  * - Todo o resto exige um JWT valido (Authorization: Bearer <token>).
  */
 @Configuration
@@ -46,8 +41,7 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/auth/login",
                                 "/", "/index.html", "/static/**",
-                                "/*.js", "/*.css", "/*.html", "/favicon.ico",
-                                "/contas/*/creditar-remoto"
+                                "/*.js", "/*.css", "/*.html", "/favicon.ico"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

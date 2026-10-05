@@ -1,53 +1,34 @@
 package com.iceibank.service;
 
 import com.iceibank.config.AppConfig;
+import com.iceibank.config.MensageriaConfig;
 import com.iceibank.model.Conta;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
+import com.iceibank.model.CreditoRemoto;
+import org.springframework.amqp.core.MessageDeliveryMode;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
-/**
- * Equivalente Java de agencia/src/controllers/transferenciasController.js.
- *
- * LIMITACAO CONHECIDA (proposital neste sprint): se a chamada REST para a agencia
- * de destino falhar, o debito ja aplicado na origem NAO e revertido - o dinheiro
- * "desaparece" temporariamente. Resolver isso de forma correta (atomicidade sob
- * falha) e o assunto do Sprint 4, com uma transacao distribuida de verdade
- * (2PC/Saga). Por enquanto, so registramos a inconsistencia no log.
- */
 @Service
 public class TransferenciaService {
-
     private final AppConfig appConfig;
     private final ContaService contaService;
-    private final RelogioLamport relogio;
+    private final RelogioVetorial relogio;
     private final RegistroEventos registro;
     private final HistoricoService historico;
-    private final RestTemplate restTemplate;
-    private final String internalSecret;
+    private final RabbitTemplate rabbitTemplate;
 
-    public TransferenciaService(
-            AppConfig appConfig,
-            ContaService contaService,
-            RelogioLamport relogio,
-            RegistroEventos registro,
-            HistoricoService historico,
-            RestTemplate restTemplate,
-            @Value("${iceibank.internal.secret}") String internalSecret
-    ) {
+    public TransferenciaService(AppConfig appConfig, ContaService contaService, RelogioVetorial relogio,
+                               RegistroEventos registro, HistoricoService historico, RabbitTemplate rabbitTemplate) {
         this.appConfig = appConfig;
         this.contaService = contaService;
         this.relogio = relogio;
         this.registro = registro;
         this.historico = historico;
-        this.restTemplate = restTemplate;
-        this.internalSecret = internalSecret;
+        this.rabbitTemplate = rabbitTemplate;
     }
 
     public static class TransferenciaException extends RuntimeException {
@@ -63,101 +44,56 @@ public class TransferenciaService {
     public ResultadoTransferencia transferir(int idOrigem, int idDestino, double valor) {
         Map<Integer, Conta> contas = contaService.getContas();
         Conta contaOrigem = contas.get(idOrigem);
-        if (contaOrigem == null) {
-            throw new TransferenciaException("Conta de origem nao encontrada nesta agencia.", 404);
-        }
-        if (contaOrigem.getSaldo() < valor) {
-            throw new TransferenciaException("Saldo insuficiente.", 400);
-        }
+        if (contaOrigem == null) throw new TransferenciaException("Conta de origem não encontrada nesta agência.", 404);
+        if (!Double.isFinite(valor) || valor <= 0) throw new TransferenciaException("Valor deve ser positivo.", 400);
+        if (contaOrigem.getSaldo() < valor) throw new TransferenciaException("Saldo insuficiente.", 400);
 
         int agenciaDestino = AppConfig.agenciaResponsavel(idDestino);
-
-        // O debito e sempre local, pois esta agencia e a dona da conta de origem.
-        int tsDebito = relogio.eventoLocal();
+        int[] vetorDebito = relogio.eventoLocal();
         contaOrigem.setSaldo(contaOrigem.getSaldo() - valor);
-
         Map<String, Object> detalhesDebito = new LinkedHashMap<>();
         detalhesDebito.put("idOrigem", idOrigem);
         detalhesDebito.put("idDestino", idDestino);
         detalhesDebito.put("valor", valor);
-        registro.registrar("TRANSFERENCIA_DEBITO", tsDebito, detalhesDebito);
-        historico.registrar(idOrigem, "TRANSFERENCIA_DEBITO", tsDebito, detalhesDebito);
+        registro.registrar("TRANSFERENCIA_DEBITO", vetorDebito, detalhesDebito);
+        historico.registrar(idOrigem, "TRANSFERENCIA_DEBITO", vetorDebito, detalhesDebito);
 
         if (agenciaDestino == appConfig.getIdAgencia()) {
-            // Caso simples: mesma agencia, credita direto (nao precisa de aoEnviar/aoReceber,
-            // pois nao ha mensagem trafegando entre processos distintos).
             Conta contaDestino = contas.get(idDestino);
             if (contaDestino == null) {
-                contaOrigem.setSaldo(contaOrigem.getSaldo() + valor); // desfaz o debito
-                throw new TransferenciaException("Conta de destino nao encontrada.", 404);
+                contaOrigem.setSaldo(contaOrigem.getSaldo() + valor);
+                throw new TransferenciaException("Conta de destino não encontrada.", 404);
             }
-            int tsCredito = relogio.eventoLocal();
+            int[] vetorCredito = relogio.eventoLocal();
             contaDestino.setSaldo(contaDestino.getSaldo() + valor);
-
-            Map<String, Object> detalhesCredito = new LinkedHashMap<>();
-            detalhesCredito.put("idOrigem", idOrigem);
-            detalhesCredito.put("idDestino", idDestino);
-            detalhesCredito.put("valor", valor);
-            registro.registrar("TRANSFERENCIA_CREDITO", tsCredito, detalhesCredito);
-            historico.registrar(idDestino, "TRANSFERENCIA_CREDITO", tsCredito, detalhesCredito);
-
-            return new ResultadoTransferencia("Transferencia concluida (mesma agencia).");
+            Map<String, Object> detalhes = Map.of("idOrigem", idOrigem, "idDestino", idDestino, "valor", valor);
+            registro.registrar("TRANSFERENCIA_CREDITO", vetorCredito, detalhes);
+            historico.registrar(idDestino, "TRANSFERENCIA_CREDITO", vetorCredito, detalhes);
+            return new ResultadoTransferencia("Transferência concluída (mesma agência).");
         }
 
-        // Caso entre agencias: chama a agencia de destino diretamente via REST.
-        int tsEnvio = relogio.aoEnviar();
-        AppConfig.Agencia destino = AppConfig.buscarAgencia(agenciaDestino);
-
+        String messageId = UUID.randomUUID().toString();
+        int[] vetorEnvio = relogio.aoEnviar();
+        CreditoRemoto mensagem = new CreditoRemoto(messageId, idDestino, valor, vetorEnvio,
+                appConfig.getIdAgencia(), agenciaDestino);
+        String routingKey = "agencia." + agenciaDestino + ".creditar";
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Agencia-Secret", internalSecret);
-            Map<String, Object> corpo = new LinkedHashMap<>();
-            corpo.put("valor", valor);
-            corpo.put("timestampLamport", tsEnvio);
-            corpo.put("origemAgencia", appConfig.getIdAgencia());
-
-            restTemplate.postForEntity(
-                    destino.url() + "/contas/" + idDestino + "/creditar-remoto",
-                    new HttpEntity<>(corpo, headers),
-                    Map.class
-            );
-            return new ResultadoTransferencia("Transferencia concluida (entre agencias).");
-        } catch (RestClientException e) {
-            // LIMITACAO CONHECIDA: o debito acima NAO e revertido. Ver Sprint 4.
-            Map<String, Object> detalhesFalha = new LinkedHashMap<>();
-            detalhesFalha.put("idOrigem", idOrigem);
-            detalhesFalha.put("idDestino", idDestino);
-            detalhesFalha.put("valor", valor);
-            detalhesFalha.put("erro", e.getMessage());
-            int tsFalha = relogio.eventoLocal();
-            registro.registrar("TRANSFERENCIA_FALHOU", tsFalha, detalhesFalha);
-            historico.registrar(idOrigem, "TRANSFERENCIA_FALHOU", tsFalha, detalhesFalha);
-
-            throw new TransferenciaException(
-                    "Falha ao contatar agencia de destino. Debito ja aplicado - inconsistencia conhecida (ver Sprint 4).",
-                    502
-            );
-        }
-    }
-
-    /** Chamada recebida de outra agencia (ver TransferenciasController.creditarRemoto). */
-    public void creditarRemoto(int idConta, double valor, int timestampLamportRecebido, int origemAgencia) {
-        Conta conta = contaService.getContas().get(idConta);
-        if (conta == null) {
-            throw new TransferenciaException("Conta nao encontrada nesta agencia.", 404);
+            rabbitTemplate.convertAndSend(MensageriaConfig.EXCHANGE, routingKey, mensagem, amqp -> {
+                amqp.getMessageProperties().setDeliveryMode(MessageDeliveryMode.PERSISTENT);
+                amqp.getMessageProperties().setMessageId(messageId);
+                return amqp;
+            });
+        } catch (RuntimeException e) {
+            contaOrigem.setSaldo(contaOrigem.getSaldo() + valor);
+            int[] vetorFalha = relogio.eventoLocal();
+            registro.registrar("TRANSFERENCIA_PUBLICACAO_FALHOU", vetorFalha,
+                    Map.of("messageId", messageId, "idDestino", idDestino, "valor", valor));
+            throw new TransferenciaException("Não foi possível publicar a transferência no RabbitMQ.", 503);
         }
 
-        // Ao RECEBER uma mensagem de outra agencia, o relogio de Lamport e atualizado
-        // com base no timestamp recebido - regra 3 do algoritmo.
-        int ts = relogio.aoReceber(timestampLamportRecebido);
-
-        conta.setSaldo(conta.getSaldo() + valor);
-
-        Map<String, Object> detalhes = new LinkedHashMap<>();
-        detalhes.put("idConta", idConta);
-        detalhes.put("valor", valor);
-        detalhes.put("origemAgencia", origemAgencia);
-        registro.registrar("TRANSFERENCIA_CREDITO_REMOTO", ts, detalhes);
-        historico.registrar(idConta, "TRANSFERENCIA_CREDITO_REMOTO", ts, detalhes);
+        registro.registrar("TRANSFERENCIA_PUBLICADA", vetorEnvio,
+                Map.of("messageId", messageId, "idOrigem", idOrigem, "idDestino", idDestino,
+                        "valor", valor, "agenciaDestino", agenciaDestino));
+        return new ResultadoTransferencia("Transferência publicada; o crédito será processado de forma assíncrona. ID: " + messageId);
     }
 }
