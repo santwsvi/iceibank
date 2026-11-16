@@ -41,4 +41,8 @@ public class RelogioVetorial {
     public synchronized int[] estadoAtual() {
         return vetor.clone();
     }
+
+    public synchronized int[] obterVetorAtual() {
+        return vetor.clone();
+    }
 }

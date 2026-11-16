@@ -2,6 +2,7 @@ package com.iceibank;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Ponto de entrada da agencia do ICEIBank (Sprint 1).
@@ -18,6 +19,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *   set AGENCIA_ID=0 && set PORTA=4000 && java -jar target/agencia.jar   (Windows/PowerShell: $env:AGENCIA_ID=0; $env:PORTA=4000; java -jar target/agencia.jar)
  */
 @SpringBootApplication
+@EnableScheduling
 public class IceibankApplication {
 
     public static void main(String[] args) {
