@@ -1,5 +1,31 @@
 # RESPOSTAS.md - ICEIBank (Java / Spring Boot)
 
+## Sprint 3 - implementação
+
+### Funcionalidade adicional
+
+Timeout da comunicação Bully configurável pelas variáveis `BULLY_HEARTBEAT_MS` (padrão 3000 ms) e `BULLY_TIMEOUT_MS` (padrão 1000 ms), definido em `application.properties`. Isso permite ajustar a sensibilidade da detecção para rede local ou ambiente de laboratório sem recompilar.
+
+### Decisões de implementação
+
+- O backend permaneceu em Java/Spring Boot. As agências trocam eleição e anúncio pelos endpoints `/bully/eleicao` e `/bully/coordenador`; `/bully/lider` é consultável sem JWT para a comunicação entre processos e pelo painel móvel.
+- O heartbeat é agendado pelo Spring. Ao falhar o contato com a liderança, a agência registra o evento e inicia nova eleição. `historico-lideranca.ps1` reconstitui os eventos dos arquivos JSONL no Windows.
+- A sincronização compara o vetor conhecido com o vetor atual da agência. Um vetor diferente retorna HTTP 409 com conta e vetor atuais. A granularidade é por agência, então outras contas podem provocar conflito.
+- O app usa SQLite (`sqflite`) para cache e fila, `connectivity_plus` para perceber reconexão e apresenta resultado provisório para depósitos/saques offline. O 409 mantém a operação marcada para revisão e atualiza o saldo mostrado com o valor real. Transferências são online nesta versão.
+- Flutter consulta a liderança a cada quatro segundos e tenta as três agências. No Android Emulator, a base HTTP usa `10.0.2.2`; em dispositivo físico, deve ser configurada para o IP acessível do computador.
+
+### Respostas conceituais e evidências
+
+O maior ID vence por convenção do Bully, mas inverter a prioridade também seria correto se todos usassem consistentemente a mesma regra. Mais de um `TORNOU_LIDER` durante eleições simultâneas é possível: anúncios podem se cruzar antes de convergir, gerando tráfego e mudanças transitórias. Heartbeat muito curto aumenta tráfego e falsos positivos; muito longo atrasa failover. Uma rede lenta acima do timeout pode parecer falha e causar eleição desnecessária. Uma líder que retorna com ID maior pode reassumir a liderança, criando troca durante operação; no Sprint 3 a liderança é informativa.
+
+O app reaproveita endpoints REST e JWT do frontend web. O polling de quatro segundos equilibra atualização e tráfego; uma resposta transitória divergente converge nas próximas consultas. A UI móvel usa cache persistente e fila local, exigindo estados explícitos de pendência e conflito que não existem no fluxo web.
+
+O conflito compara vetor inteiro porque mudanças causais podem ocorrer sem alteração do saldo observado; um saldo pode até voltar ao valor anterior após duas operações. A comparação por agência é deliberadamente ampla. Para maior precisão, seria necessário vetor/versão por conta ou registro de eventos associados à conta. Após HTTP 409, o app mostra o saldo real e deixa a operação em revisão, sem reaplicá-la automaticamente para evitar duplicidade/decisão financeira silenciosa.
+
+UI otimista pode mostrar fundos que o servidor não aceitou, então o app marca saldo como provisório e destaca as operações pendentes. A escolha por SQLite permite persistir cache e fila entre reinicializações; Hive seria alternativa simples, mas não relacional.
+
+**Limitação de validação desta sessão:** Flutter SDK não está disponível no PATH; não foi possível gerar a plataforma Android pelo Flutter CLI, executar no emulador ou capturar os oito prints reais. Esses arquivos devem ser capturados no ambiente com Flutter/emulador e guardados em `evidencias/sprint3/`.
+
 > Linguagem escolhida: **Java (Spring Boot)**, mantida do Sprint 1 ao Sprint 4.
 
 ## Recapitulação do Sprint 1 e proposta do Sprint 2

@@ -1,5 +1,9 @@
 # ICEIBank - Sprint 2 (Java / Spring Boot)
 
+## Sprint 3 (em implementação)
+
+O backend elege líder via Bully e consulta sua disponibilidade periodicamente. O intervalo e timeout podem ser ajustados por ambiente: `BULLY_HEARTBEAT_MS` (padrão 3000) e `BULLY_TIMEOUT_MS` (padrão 1000). O cliente Flutter está em `app_mobile/`; no Android Emulator, use a configuração padrão `10.0.2.2` para acessar a API local. Para histórico, execute `./historico-lideranca.ps1` dentro de `agencia`.
+
 Implementacao em **Java 17 + Spring Boot 3**: API REST/MVC de contas particionadas em
 3 agencias, relógio vetorial, transferências remotas assíncronas com RabbitMQ, JWT e
 frontend web simples servido pelo próprio Spring Boot. Mensagens não processadas após

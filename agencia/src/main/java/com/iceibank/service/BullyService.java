@@ -5,6 +5,7 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
@@ -19,15 +20,21 @@ public class BullyService {
     private final RestTemplate http;
     private final AtomicInteger leader = new AtomicInteger(-1);
     private final AtomicBoolean election = new AtomicBoolean(false);
+    @Value("${iceibank.bully.timeout-ms:1000}") private int timeoutMs;
 
     public BullyService(AppConfig config, RelogioVetorial clock, RegistroEventos log) {
         this.id = config.getIdAgencia(); this.clock = clock; this.log = log;
         var factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(1000); factory.setReadTimeout(1000);
         this.http = new RestTemplate(factory);
     }
 
-    @PostConstruct public void start() { iniciarEleicao(); }
+    @PostConstruct public void start() { configurarTimeout(); iniciarEleicao(); }
+
+    private void configurarTimeout() {
+        var factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(timeoutMs); factory.setReadTimeout(timeoutMs);
+        http.setRequestFactory(factory);
+    }
 
     public void iniciarEleicao() {
         if (!election.compareAndSet(false, true)) return;
@@ -72,5 +79,5 @@ public class BullyService {
         }
     }
 
-    public Map<String,Object> status() { return Map.of("idAgencia", id, "liderAtual", leader.get()); }
+    public Map<String,Object> status() { var result = new java.util.LinkedHashMap<String,Object>(); result.put("idAgencia", id); result.put("liderAtual", leader.get() < 0 ? null : leader.get()); return result; }
 }
