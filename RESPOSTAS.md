@@ -16,6 +16,8 @@ Timeout da comunicação Bully configurável pelas variáveis `BULLY_HEARTBEAT_M
 
 ### Respostas conceituais e evidências
 
+Análise dos logs de 23/11: houve divergência real na partida da agência 2. Ela registrou `TORNOU_LIDER` às 20:34:41.228, antes do Tomcat abrir a porta 4002 às 20:34:44.959. Enquanto a agência 2 ainda não aceitava chamadas, a agência 0 considerou a líder indisponível e a agência 1 concluiu uma eleição sem receber resposta da agência 2. A inicialização foi corrigida para começar a eleição em `ApplicationReadyEvent` e impedir heartbeats antes de o servidor HTTP estar pronto.
+
 O maior ID vence por convenção do Bully, mas inverter a prioridade também seria correto se todos usassem consistentemente a mesma regra. Mais de um `TORNOU_LIDER` durante eleições simultâneas é possível: anúncios podem se cruzar antes de convergir, gerando tráfego e mudanças transitórias. Heartbeat muito curto aumenta tráfego e falsos positivos; muito longo atrasa failover. Uma rede lenta acima do timeout pode parecer falha e causar eleição desnecessária. Uma líder que retorna com ID maior pode reassumir a liderança, criando troca durante operação; no Sprint 3 a liderança é informativa.
 
 O app reaproveita endpoints REST e JWT do frontend web. O polling de quatro segundos equilibra atualização e tráfego; uma resposta transitória divergente converge nas próximas consultas. A UI móvel usa cache persistente e fila local, exigindo estados explícitos de pendência e conflito que não existem no fluxo web.

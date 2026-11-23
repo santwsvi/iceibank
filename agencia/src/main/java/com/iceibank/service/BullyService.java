@@ -1,7 +1,8 @@
 package com.iceibank.service;
 
 import com.iceibank.config.AppConfig;
-import jakarta.annotation.PostConstruct;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ public class BullyService {
     private final RestTemplate http;
     private final AtomicInteger leader = new AtomicInteger(-1);
     private final AtomicBoolean election = new AtomicBoolean(false);
+    private final AtomicBoolean ready = new AtomicBoolean(false);
     @Value("${iceibank.bully.timeout-ms:1000}") private int timeoutMs;
 
     public BullyService(AppConfig config, RelogioVetorial clock, RegistroEventos log) {
@@ -28,7 +30,12 @@ public class BullyService {
         this.http = new RestTemplate(factory);
     }
 
-    @PostConstruct public void start() { configurarTimeout(); iniciarEleicao(); }
+    @EventListener(ApplicationReadyEvent.class)
+    public void startAfterHttpServerIsReady() {
+        configurarTimeout();
+        ready.set(true);
+        iniciarEleicao();
+    }
 
     private void configurarTimeout() {
         var factory = new SimpleClientHttpRequestFactory();
@@ -68,6 +75,7 @@ public class BullyService {
 
     @Scheduled(fixedDelayString="${iceibank.bully.heartbeat-ms:3000}")
     public void heartbeat() {
+        if (!ready.get()) return;
         int known = leader.get();
         if (known < 0) { iniciarEleicao(); return; }
         if (known == id) return;
